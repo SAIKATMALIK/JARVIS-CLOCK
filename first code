@@ -1,0 +1,175 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+#include <ESP8266WiFi.h>
+
+const char* ssid = "JARVIS";
+const char* password = "**********";
+
+// LCD Setup
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 19800, 300000);
+
+// Button Setup
+const int buttonPinTime = D5;
+const int buttonPinStopwatch = D6;
+int screenMode = 0;  // 0: Time, 1: Date, 2: Stopwatch Running, 3: Stopwatch Paused
+bool lastButtonStateTime = HIGH;
+bool lastButtonStateStopwatch = HIGH;
+
+// Stopwatch Variables
+bool stopwatchRunning = false;
+unsigned long stopwatchStart = 0;
+unsigned long elapsedTime = 0;
+unsigned long lastUpdateTime = 0;
+
+void setup() {
+    Serial.begin(115200);
+    Wire.begin(D2, D1);
+    lcd.init();
+    lcd.backlight();
+    pinMode(buttonPinTime, INPUT_PULLUP);
+    pinMode(buttonPinStopwatch, INPUT_PULLUP);
+
+    lcd.setCursor(0, 0);
+    lcd.print("Hii Saikat Sir");
+    lcd.setCursor(0, 1);
+    lcd.print("I am Jarvis");
+    delay(5000);
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Sir, please");
+    lcd.setCursor(0, 1);
+    lcd.print("connect WiFi...");
+    delay(1000);
+
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Connected, Sir");
+    delay(3000);
+    lcd.clear();
+
+    timeClient.begin();
+}
+
+void loop() {
+    timeClient.update();
+    handleTimeButton();
+    handleStopwatchButton();
+
+    if (screenMode == 2 && millis() - lastUpdateTime >= 1000) { 
+        lastUpdateTime = millis();
+        updateStopwatchDisplay();
+    }
+
+    if (screenMode == 0 && millis() - lastUpdateTime >= 1000) { 
+        lastUpdateTime = millis();
+        showTime();
+    } 
+}
+
+void handleTimeButton() {
+    bool buttonState = digitalRead(buttonPinTime);
+    if (buttonState == LOW && lastButtonStateTime == HIGH) {
+        screenMode = (screenMode == 0) ? 1 : 0;  // Toggle 0 (Time) / 1 (Date)
+        lcd.clear();
+        displayMode();
+        delay(200);
+    }
+    lastButtonStateTime = buttonState;
+}
+
+void handleStopwatchButton() {
+    bool buttonState = digitalRead(buttonPinStopwatch);
+    if (buttonState == LOW && lastButtonStateStopwatch == HIGH) {
+        screenMode = (screenMode == 2) ? 3 : 2;  // Toggle 2 (Start) / 3 (Pause)
+
+        if (screenMode == 2) { 
+            stopwatchRunning = true;
+            stopwatchStart = millis() - elapsedTime;
+        } else { 
+            stopwatchRunning = false;
+            elapsedTime = millis() - stopwatchStart;
+        }
+
+        lcd.clear();
+        updateStopwatchDisplay();
+        delay(200);
+    }
+    lastButtonStateStopwatch = buttonState;
+}
+
+void displayMode() {
+    lcd.clear();
+    if (screenMode == 0) showTime();
+    else if (screenMode == 1) showDate();
+}
+
+void showTime() {
+    int hours = timeClient.getHours();
+    int minutes = timeClient.getMinutes();
+    int seconds = timeClient.getSeconds();
+    String ampm = (hours >= 12) ? "PM" : "AM";
+
+    if (hours > 12) hours -= 12;
+    if (hours == 0) hours = 12;
+
+    lcd.setCursor(0, 0);
+      lcd.print("TIME:");
+    if (hours < 10) lcd.print("0");
+    lcd.print(hours);
+    lcd.print(":");
+    if (minutes < 10) lcd.print("0");
+    lcd.print(minutes);
+    lcd.print(":");
+    if (seconds < 10) lcd.print("0");
+    lcd.print(seconds);
+
+    lcd.setCursor(14, 0);
+    lcd.print(ampm);
+}
+
+void showDate() {
+    time_t epochTime = timeClient.getEpochTime();
+    struct tm *ptm = gmtime(&epochTime);
+
+    lcd.setCursor(0, 0);
+    lcd.print("DATE:");
+    if (ptm->tm_mday < 10) lcd.print("0");
+    lcd.print(ptm->tm_mday);
+    lcd.print(":");
+    if (ptm->tm_mon + 1 < 10) lcd.print("0");
+    lcd.print(ptm->tm_mon + 1);
+    lcd.print(":");
+    lcd.print(ptm->tm_year + 1900);
+}
+
+void updateStopwatchDisplay() {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Stopwatch:");
+
+    unsigned long timeElapsed = stopwatchRunning ? millis() - stopwatchStart : elapsedTime;
+    unsigned long sec = (timeElapsed / 1000) % 60;
+    unsigned long min = (timeElapsed / 60000) % 60;
+    unsigned long hr = (timeElapsed / 3600000);
+
+    lcd.setCursor(0, 1);
+    if (hr < 10) lcd.print("0");
+    lcd.print(hr);
+    lcd.print(".");
+    if (min < 10) lcd.print("0");
+    lcd.print(min);
+    lcd.print(".");
+    if (sec < 10) lcd.print("0");
+    lcd.print(sec);
+}
